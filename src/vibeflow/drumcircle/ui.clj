@@ -1,5 +1,6 @@
 (ns vibeflow.drumcircle.ui
-  (:require [quil.core :as q]))
+  (:require [quil.core :as q]
+            [vibeflow.drumcircle :as drumcircle]))
 
 (def colors {:green  [0x3A 0x60 0x29]
              :yellow [0xF6 0xCE 0x1F]
@@ -16,15 +17,9 @@
 
 (def canvas-size 900)
 
-(def pattern (atom {:pattern #{[0 0]
-                               [0 4]
-                               [0 8]
-                               [0 12]
-                               [1 2]
-                               [2 3]
-                               [3 9]}
-                    :colors [:red :green :blue :yellow :ochre :brown]
-                    :tick 3}))
+(def rings [[:kick :red]
+            [:snare :green]
+            [:hi-hat :blue]])
 
 (def TAU (* Math/PI 2))
 
@@ -36,11 +31,6 @@
   (q/no-fill)
   (q/stroke-cap :square)
   (q/no-loop))
-
-(let [rsize 300
-      rx 250
-      ry 250
-      rings 3])
 
 (defn arc-segment [{:keys [rx ry
                            ring
@@ -57,32 +47,32 @@
            (+ arc-offset (* segment arc-width) arc-margin)
            (+ arc-offset (* (inc segment) arc-width) (- arc-margin)))))
 
-(defn draw [{:keys [pattern colors tick]}]
+(defn draw [{:keys [pattern]}]
   (apply q/background background)
   (let [rsize (* canvas-size 2/3)
         rx (/ canvas-size 2)
         ry (/ canvas-size 2)
-        rings 4
+        ring-count (count rings)
         margin 3
         segments 16
-        arc-height (/ rsize rings)
+        arc-height (/ rsize ring-count)
         arc-width (/ TAU segments)
         arc-offset (- 0 (/ TAU 4) (/ TAU segments 2))
         stroke (- (/ arc-height 2) margin)
         circumference (* Math/PI rsize)
         arc-margin (* TAU (/ margin circumference))]
     (q/stroke-weight stroke)
-    (doseq [ring (range rings)
+    (doseq [[[inst color] ring] (map vector rings (range))
             segment (range segments)]
-      (if (get pattern [ring segment])
-        (stroke-color (get colors ring))
+      (if (some #{[(/ segment segments) inst]} pattern)
+        (stroke-color color)
         (stroke-color (cond
                         (= 0 (mod segment 4)) :light3
                         (even? segment) :light2
                         :else :light1)))
       (arc-segment {:rx rx
                     :ry ry
-                    :ring (- rings ring)
+                    :ring (- ring-count ring)
                     :segment segment
                     :arc-height arc-height
                     :arc-width arc-width
@@ -90,15 +80,15 @@
                     :arc-offset arc-offset
                     :stroke stroke}))
     (stroke-color :blue)
-    (arc-segment {:rx rx
-                  :ry ry
-                  :ring (inc rings)
-                  :segment tick
-                  :arc-height arc-height
-                  :arc-width arc-width
-                  :arc-margin arc-margin
-                  :arc-offset arc-offset
-                  :stroke stroke})))
+    #_(arc-segment {:rx rx
+                    :ry ry
+                    :ring (inc ring-count)
+                    :segment tick
+                    :arc-height arc-height
+                    :arc-width arc-width
+                    :arc-margin arc-margin
+                    :arc-offset arc-offset
+                    :stroke stroke})))
 
 (defn start-ui []
   (let [watch-key (keyword (str *ns*) (str (gensym "draw")))
@@ -107,15 +97,27 @@
                          :setup (fn []
                                   (setup))
                          :draw (fn []
-                                 (draw @pattern))
+                                 (draw @drumcircle/state))
                          :size [canvas-size canvas-size]
-                         :on-close #(remove-watch pattern watch-key))]
-    (add-watch pattern watch-key (fn [_ _ _ _]
-                                   (quil.applet/with-applet applet
-                                     (q/redraw))))
+                         :on-close #(remove-watch drumcircle/state watch-key))]
+    (add-watch drumcircle/state
+               watch-key
+               (fn [_ _ _ _]
+                 (quil.applet/with-applet applet
+                   (q/redraw))))
     applet))
 
 (comment
   (start-ui)
   (swap! pattern update :tick (fn [t] (mod (inc t) 16)))
   (swap! pattern update :pattern conj [0 1]))
+
+#_(def pattern (atom {:pattern #{[0 0]
+                                [0 4]
+                                [0 8]
+                                [0 12]
+                                [1 2]
+                                [2 3]
+                                [3 9]}
+                     :colors [:red :green :blue :yellow :ochre :brown]
+                     :tick 3}))
