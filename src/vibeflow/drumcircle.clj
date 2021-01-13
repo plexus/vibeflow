@@ -23,29 +23,29 @@
                                    JackStatus)
            (java.util EnumSet))
   (:require [vibeflow.midi.jack :as jack]
-            [vibeflow.midi.core :as midi]))
+            [vibeflow.midi.core :as midi]
+            [clojure.pprint :as pprint]))
 
-
-
-(def state (atom {:pattern #{[0 :kick]
-                             [1/4 :snare]
-                             [2/4 :kick]
-                             [5/8 :snare]
-                             [3/4 :kick]}
-                  :instruments {:kick [0 40 127]
-                                :snare [0 53 127]
-                                :hi-hat [0 71 127]}
-                  :bar 0
-                  :beat 0
-                  :tick 0
-                  :ticks-per-beat 1920
-                  :frame 0
-                  :frame-rate 44100
-                  :playing? false
-                  :beats-per-minute 120
-                  :beats-per-bar 4 ;; Together these
-                  :beat-type 4     ;; form the time signature (4/4)
-                  }))
+(defonce state (atom {:pattern #{[0 :kick]
+                                 [1/4 :snare]
+                                 [2/4 :kick]
+                                 [5/8 :snare]
+                                 [3/4 :kick]}
+                      :instruments {:kick [0 40 127]
+                                    :snare [0 53 127]
+                                    :hi-hat [0 71 127]
+                                    :hi-hat-open [0 69 127]}
+                      :bar 0
+                      :beat 0
+                      :tick 0
+                      :ticks-per-beat 1920
+                      :frame 0
+                      :frame-rate 44100
+                      :playing? false
+                      :beats-per-minute 120
+                      :beats-per-bar 4 ;; Together these
+                      :beat-type 4     ;; form the time signature (4/4)
+                      }))
 
 (defn note-in-range [^double n ^double start ^double end]
   (or (<= start n end)
@@ -75,6 +75,17 @@
         cycle-end (+ (/ (+ (- beat 1) (/ (+ tick ticks-per-cycle) ticks-per-beat)) beat-type))
         note-type (Math/round (* beat-type resolution))
         frames-per-bar (* (/ beats-per-minute 60) frame-rate)]
+
+    (doseq [[fraction inst] pattern
+            :let [end (+ fraction 1/16)]
+            :when (note-in-range (if (< 1 end) (- end 1) end)
+                                 cycle-start
+                                 cycle-end)]
+      (let [[chan note velocity] (get instruments inst)
+            offset (* frames-per-bar (note-offset fraction cycle-start))]
+        (jack/write-midi-event port
+                               (long offset)
+                               (midi/message chan :note-off note 0))))
 
     (doseq [[fraction inst] pattern
             :when (note-in-range fraction cycle-start cycle-end)]
@@ -114,6 +125,15 @@
                          (write-cycle-beats client out cycle-frames new-state)))
                      true))))
 
+(defn save-pattern [name]
+  (spit (str "src/" name ".clj")
+        (with-out-str
+          (println ";;" name (java.util.Date.))
+          (println "(require 'vibeflow.drumcircle)")
+          (println)
+          (pprint/pprint `(~'swap! state ~'merge ~(select-keys @state [:pattern :instruments]))))))
+
+
 (comment
   (start-sequencer)
   (swap! state assoc
@@ -130,4 +150,22 @@
            [1/2 :hi-hat]
            [5/8 :hi-hat]
            [3/4 :hi-hat]
-           [7/8 :hi-hat]}))
+           [7/8 :hi-hat]})
+
+
+  ;; https://www.youtube.com/watch?v=tm2BgO1VaRY&list=WL&index=1
+  (save-pattern "four_on_the_floar")
+  (load "/four_on_the_floar")
+
+  (save-pattern "basic_rock")
+  (load "/basic_rock")
+
+  (save-pattern "levee_break")
+  (load "/levee_break")
+
+  (save-pattern "impeach_the_president")
+  (load "/impeach_the_president")
+
+  (save-pattern "funky_drummer")
+  (load "/funky_drummer")
+  )

@@ -19,7 +19,8 @@
 
 (def rings [[:kick :red]
             [:snare :green]
-            [:hi-hat :blue]])
+            [:hi-hat :blue]
+            [:hi-hat-open :yellow]])
 
 (def TAU (* Math/PI 2))
 
@@ -47,8 +48,7 @@
            (+ arc-offset (* segment arc-width) arc-margin)
            (+ arc-offset (* (inc segment) arc-width) (- arc-margin)))))
 
-(defn draw [{:keys [pattern]}]
-  (apply q/background background)
+(def parameters
   (let [rsize (* canvas-size 2/3)
         rx (/ canvas-size 2)
         ry (/ canvas-size 2)
@@ -61,6 +61,26 @@
         stroke (- (/ arc-height 2) margin)
         circumference (* Math/PI rsize)
         arc-margin (* TAU (/ margin circumference))]
+    {:ry ry
+     :margin margin
+     :rx rx
+     :stroke stroke
+     :arc-height arc-height
+     :arc-width arc-width
+     :circumference circumference
+     :arc-margin arc-margin
+     :rsize rsize
+     :segments segments
+     :ring-count ring-count
+     :arc-offset arc-offset}))
+
+(defn draw [{:keys [pattern]}]
+  (apply q/background background)
+  (let [{:keys [rsize ry rx ring-count
+                margin segments
+                arc-height arc-width  arc-offset
+                stroke circumference arc-margin]}
+        parameters]
     (q/stroke-weight stroke)
     (doseq [[[inst color] ring] (map vector rings (range))
             segment (range segments)]
@@ -90,6 +110,40 @@
                     :arc-offset arc-offset
                     :stroke stroke})))
 
+(defn polar [x y]
+  [(Math/sqrt (+ (* x x) (* y y)))
+   (Math/atan2 x y)])
+
+(defn tau-wrap [x]
+  (if (< TAU x)
+    (recur (- x TAU))
+    x))
+
+
+(defn on-mouse-clicked []
+  (let [{:keys [rsize ry rx ring-count
+                margin segments
+                arc-height arc-width  arc-offset
+                stroke circumference arc-margin]}
+        parameters
+        x (- (q/mouse-x) rx)
+        y (- (q/mouse-y) ry)
+        [r theta] (polar x y)
+        [inst _] (->> (* (/ (* r 2) rsize) ring-count)
+                      Math/ceil
+                      long
+                      (- ring-count)
+                      (get rings))
+        segment (long (Math/floor (* segments (/ (tau-wrap (+ (- TAU (+ Math/PI theta))
+                                                              (/ TAU segments 2)))
+                                                 TAU))))
+        note [(/ segment segments) inst]]
+    (when inst
+      (swap! drumcircle/state update :pattern
+             #(if (contains? % note)
+                (disj % note)
+                (conj % note))))))
+
 (defn start-ui []
   (let [watch-key (keyword (str *ns*) (str (gensym "draw")))
         applet (q/sketch :title "Drumcircle"
@@ -99,7 +153,8 @@
                          :draw (fn []
                                  (draw @drumcircle/state))
                          :size [canvas-size canvas-size]
-                         :on-close #(remove-watch drumcircle/state watch-key))]
+                         :on-close #(remove-watch drumcircle/state watch-key)
+                         :mouse-clicked #'on-mouse-clicked)]
     (add-watch drumcircle/state
                watch-key
                (fn [_ _ _ _]
@@ -111,13 +166,3 @@
   (start-ui)
   (swap! pattern update :tick (fn [t] (mod (inc t) 16)))
   (swap! pattern update :pattern conj [0 1]))
-
-#_(def pattern (atom {:pattern #{[0 0]
-                                [0 4]
-                                [0 8]
-                                [0 12]
-                                [1 2]
-                                [2 3]
-                                [3 9]}
-                     :colors [:red :green :blue :yellow :ochre :brown]
-                     :tick 3}))
