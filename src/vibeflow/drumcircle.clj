@@ -82,7 +82,7 @@
                                  cycle-start
                                  cycle-end)]
       (let [[chan note velocity] (get instruments inst)
-            offset (* frames-per-bar (note-offset fraction cycle-start))]
+            offset (* frames-per-bar (note-offset end cycle-start))]
         (jack/write-midi-event port
                                (long offset)
                                (midi/message chan :note-off note 0))))
