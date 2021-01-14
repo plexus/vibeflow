@@ -162,7 +162,11 @@
                    (q/redraw))))
     applet))
 
+(defn drumcircle []
+  (drumcircle/start-sequencer)
+  (start-ui))
+
 (comment
-  (start-ui)
+  (drumcircle)
   (swap! pattern update :tick (fn [t] (mod (inc t) 16)))
   (swap! pattern update :pattern conj [0 1]))
