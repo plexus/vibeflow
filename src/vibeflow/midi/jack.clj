@@ -1,27 +1,52 @@
 (ns vibeflow.midi.jack
-  (:import (org.jaudiolibs.jnajack Jack
-                                   JackClient
-                                   JackException
-                                   JackMidi
-                                   JackMidi$Event
-                                   JackOptions
-                                   JackPosition
-                                   JackPortFlags
-                                   JackPortType
-                                   JackProcessCallback
-                                   JackShutdownCallback
-                                   JackBufferSizeCallback
-                                   JackPortConnectCallback
-                                   JackPortRegistrationCallback
-                                   JackSampleRateCallback
-                                   JackShutdownCallback
-                                   JackSyncCallback
-                                   JackClientRegistrationCallback
-                                   JackTimebaseCallback
-                                   JackTransportState
-                                   JackGraphOrderCallback
-                                   JackStatus)
-           (java.util EnumSet)))
+  "Wrapper for Jack (Jack Audio Connection Kit) midi
+
+  Allows creating in/out ports, and registering callbacks of various types.
+
+  Callback name + argument list of callback function
+
+  - :process [client frames]
+  - :buffer-size-changed [client buffersize]
+  - :client-registered [client name]
+  - :client-unregistered [client name]
+  - :ports-connected [client port-name-1 port-name-2]
+  - :ports-disconnected [client port-name-1 port-name-2]
+  - :port-registered [client port-name]
+  - :port-unregistered [client port-name]
+  - :sample-rate-changed [client rate]
+  - :client-shutdown [client]
+  - :update-position [client state frame pos new-pos]
+
+  See [[register]]/[[unregister]], which work analogous
+  to [[add-watch!]] (idempotent, REPL safe, etc).
+  "
+  (:require
+   [clojure.pprint :as pprint])
+  (:import
+   (org.jaudiolibs.jnajack
+    Jack
+    JackClient
+    JackException
+    JackMidi
+    JackMidi$Event
+    JackOptions
+    JackPosition
+    JackPortFlags
+    JackPortType
+    JackProcessCallback
+    JackShutdownCallback
+    JackBufferSizeCallback
+    JackPortConnectCallback
+    JackPortRegistrationCallback
+    JackSampleRateCallback
+    JackShutdownCallback
+    JackSyncCallback
+    JackClientRegistrationCallback
+    JackTimebaseCallback
+    JackTransportState
+    JackGraphOrderCallback
+    JackStatus)
+   (java.util EnumSet)))
 
 (set! *warn-on-reflection* true)
 
@@ -47,7 +72,11 @@
 
   clojure.lang.IDeref
   (deref [_]
-    @registry))
+    @registry)
+
+  Object
+  (toString [_]
+    (str "#<JackClientwrapper " (.getName client) ">")))
 
 (defmacro registry-callback [client registry cb-type set-cb-type & methods]
   `(~(symbol (str "." set-cb-type))
@@ -56,29 +85,37 @@
       ~@(for [[method k args] (partition 3 methods)]
           `(~method ~(into '[_] args)
             (reduce (fn [ok?# [k# cb#]]
-                      (and ok?# (try
-                                  (cb# ~@args)
-                                  (catch Exception e#
-                                    (println "Error in" '~method "callback" k#)
-                                    (println e#)
-                                    ok?#))))
+                      ;; If a callback returns falsy, then any remaining
+                      ;; callbacks of that type are skipped
+                      (when ok?#
+                        (try
+                          (cb# ~@args)
+                          (catch Exception e#
+                            (println "Error in" '~method "callback" k#)
+                            (println e#)
+                            ok?#))))
                     true
-                    (~k @~registry)))))))
+                    (~k @~registry)))))
+    ~@(drop (- (count methods) (mod (count methods) 3)) methods)))
 
 (defmethod print-method JackClientWrapper [x ^java.io.Writer writer]
-  (.append writer "#<JackClientWrapper>"))
+  (.append writer (.toString ^Object x)))
+
+(defmethod pprint/simple-dispatch JackClientWrapper [x]
+  (.write ^java.io.Writer *out* (.toString ^Object x)))
 
 ;; (macroexpand-1 '(registry-callback client registry ClientRegistration
 ;;                                    clientRegistered :client-registered [client name]
 ;;                                    clientUnregistered :client-unregistered [client name]))
-
 
 ;; (require 'clojure.reflect)
 
 ;; (clojure.reflect/reflect
 ;;  JackBufferSizeCallback)
 
-(defn make-client  [name]
+(defn make-client
+  "Construct a new Jack client. Prefer [[client]] which is idempotent."
+  [name]
   (let [status (EnumSet/noneOf JackStatus)
         client (.openClient (Jack/getInstance)
                             name
@@ -87,6 +124,8 @@
         registry (atom {})]
     (when (seq status)
       (println "make-client:" (map str status)))
+    ;; TODO: set these callbacks up when the first handler of that type is
+    ;; registered
     (registry-callback client registry Process setProcessCallback
                        process :process [client frames])
     (registry-callback client registry BufferSize setBuffersizeCallback
@@ -108,31 +147,6 @@
     ;; Immediately throws, not clear why
     ;; (registry-callback client registry Sync setSyncCallback
     ;;                    syncPosition :sync-position [client position state])
-
-    ;; Not doing this because it would mean we become jack time master Also the
-    ;; .setTimebaseCallback takes an extra arg (boolean conditional), so the
-    ;; registry-callback macro doesn't work, see manually expanded version below
-    ;;
-    ;; (registry-callback client registry Timebase setTimebaseCallback
-    ;;                    updatePosition :update-position [client state frame pos new-pos])
-    ;;
-    ;; (.setTimebaseCallback
-    ;;  client
-    ;;  (clojure.core/reify
-    ;;    JackTimebaseCallback
-    ;;    (updatePosition [_ client state frame pos new-pos]
-    ;;      (reduce
-    ;;       (fn [_ [k cb]]
-    ;;         (try
-    ;;           (cb client state frame pos new-pos)
-    ;;           (catch java.lang.Exception e
-    ;;             (println "Error in" 'updatePosition "callback" k)
-    ;;             (println e))))
-    ;;       nil
-    ;;       (:update-position @registry))))
-    ;;  true ;; conditional, only become master if there is no master yet
-    ;;  )
-
     (registry-callback client registry GraphOrder setGraphOrderCallback
                        graphOrderChanged :graph-order-changed [client])
 
@@ -141,7 +155,19 @@
       (swap! clients assoc name c)
       c)))
 
-(defn client [name]
+(defn make-time-master
+  ([client]
+   (make-time-master client false))
+  ([client force?]
+   (let [{:keys [client registry]} client]
+     (registry-callback ^JackClient client registry Timebase setTimebaseCallback
+                        updatePosition :update-position [client state frame pos new-pos]
+                        (not force?)))
+   client))
+
+(defn client
+  "Get a client for a given name, creating it if it doesn't exist."
+  [name]
   (or (get @clients name) (make-client name)))
 
 (defn midi-port [^JackClientWrapper client name type]
@@ -157,10 +183,14 @@
       (register client type name port)
       port)))
 
-(defn midi-in-port [client name]
+(defn midi-in-port
+  "Get a midi input name for a given client with a given name. Idempotent."
+  [client name]
   (midi-port client name :midi/input))
 
-(defn midi-out-port [client name]
+(defn midi-out-port
+  "Get a midi output name for a given client with a given name. Idempotent."
+  [client name]
   (midi-port client name :midi/output))
 
 (defn read-midi-event [port idx]
@@ -170,7 +200,10 @@
     (.read global-midi-event msg)
     [msg (.time global-midi-event)]))
 
-(defn read-midi-events [port]
+(defn read-midi-events
+  "Read midi events that happened in this processing cycle for a given input port.
+  Call within a processing callback."
+  [port]
   (doall
    (for [idx (range (JackMidi/getEventCount port))]
      (read-midi-event port idx))))
@@ -178,7 +211,10 @@
 (defn write-midi-event [port time msg]
   (JackMidi/eventWrite port time msg (count msg)))
 
-(defn filter-pipe [in out pred]
+(defn filter-pipe
+  "Helper for creating midi filters, forward all messages from `in` to `out` if
+  they satisfy `pred`."
+  [in out pred]
   (try
     (JackMidi/clearBuffer out)
     (dotimes [idx (JackMidi/getEventCount in)]
@@ -189,3 +225,9 @@
     (catch JackException e
       (println "JackException:" e)
       true)))
+
+(defn start-transport! [client]
+  (.transportStart ^JackClient (:client client)))
+
+(defn stop-transport! [client]
+  (.transportStop ^JackClient (:client client)))

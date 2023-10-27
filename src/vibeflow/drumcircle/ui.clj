@@ -74,7 +74,7 @@
      :ring-count ring-count
      :arc-offset arc-offset}))
 
-(defn draw [{:keys [pattern]}]
+(defn draw [{:keys [pattern tick] :as x}]
   (apply q/background background)
   (let [{:keys [rsize ry rx ring-count
                 margin segments
@@ -100,15 +100,15 @@
                     :arc-offset arc-offset
                     :stroke stroke}))
     (stroke-color :blue)
-    #_(arc-segment {:rx rx
-                    :ry ry
-                    :ring (inc ring-count)
-                    :segment tick
-                    :arc-height arc-height
-                    :arc-width arc-width
-                    :arc-margin arc-margin
-                    :arc-offset arc-offset
-                    :stroke stroke})))
+    (arc-segment {:rx rx
+                  :ry ry
+                  :ring (inc ring-count)
+                  :segment tick
+                  :arc-height arc-height
+                  :arc-width arc-width
+                  :arc-margin arc-margin
+                  :arc-offset arc-offset
+                  :stroke stroke})))
 
 (defn polar [x y]
   [(Math/sqrt (+ (* x x) (* y y)))

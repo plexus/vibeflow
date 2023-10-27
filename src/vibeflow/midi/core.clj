@@ -78,7 +78,7 @@
 ;;       (aset-long longs idx (b->l (aget bytes idx))))
 ;;     longs))
 
-(defn status ^long [msg]
+(defn status ^long [^bytes msg]
   (b->l (aget msg 0)))
 
 (defn event-val ^long [msg]

@@ -1,31 +1,33 @@
 (ns vibeflow.drumcircle
-  (:import (org.jaudiolibs.jnajack Jack
-                                   JackClient
-                                   JackException
-                                   JackMidi
-                                   JackMidi$Event
-                                   JackOptions
-                                   JackPosition
-                                   JackPortFlags
-                                   JackPortType
-                                   JackProcessCallback
-                                   JackShutdownCallback
-                                   JackBufferSizeCallback
-                                   JackPortConnectCallback
-                                   JackPortRegistrationCallback
-                                   JackSampleRateCallback
-                                   JackShutdownCallback
-                                   JackSyncCallback
-                                   JackClientRegistrationCallback
-                                   JackTimebaseCallback
-                                   JackTransportState
-                                   JackGraphOrderCallback
-                                   JackStatus)
-           (java.util EnumSet))
-  (:require [vibeflow.midi.jack :as jack]
-            [vibeflow.midi.core :as midi]
-            [clojure.pprint :as pprint]
-            [clojure.string :as str]))
+  (:import
+   (org.jaudiolibs.jnajack Jack
+                           JackClient
+                           JackException
+                           JackMidi
+                           JackMidi$Event
+                           JackOptions
+                           JackPosition
+                           JackPortFlags
+                           JackPortType
+                           JackProcessCallback
+                           JackShutdownCallback
+                           JackBufferSizeCallback
+                           JackPortConnectCallback
+                           JackPortRegistrationCallback
+                           JackSampleRateCallback
+                           JackShutdownCallback
+                           JackSyncCallback
+                           JackClientRegistrationCallback
+                           JackTimebaseCallback
+                           JackTransportState
+                           JackGraphOrderCallback
+                           JackStatus)
+   (java.util EnumSet))
+  (:require
+   [vibeflow.midi.jack :as jack]
+   [vibeflow.midi.core :as midi]
+   [clojure.pprint :as pprint]
+   [clojure.string :as str]))
 
 (defonce state (atom {:pattern #{[0 :kick]
                                  [1/4 :snare]
@@ -65,10 +67,13 @@
 (defn sample-at-bbt [{:keys [bpm sig-count sig-type
                              frame-rate ticks-per-beat]}
                      bar beat tick]
-  (let [beats (+ (* (dec bar) sig-count)
-                 (dec beat)
-                 (/ tick ticks-per-beat))]
-    (* 60 (/ beats bpm) frame-rate)))
+  (if (or (#{0 0.0} ticks-per-beat)
+          (#{0 0.0} bpm))
+    0
+    (let [beats (+ (* (dec bar) sig-count)
+                   (dec beat)
+                   (/ tick ticks-per-beat))]
+      (* 60 (/ beats bpm) frame-rate))))
 
 (defn bbt-at-sample [{:keys [bpm sig-count sig-type
                              frame-rate ticks-per-beat]}
@@ -194,23 +199,19 @@
          :beats-per-bar (.getBeatsPerBar pos)
          :beat-type (.getBeatType pos)))
 
-(defn start-sequencer []
-  (let [client (jack/client "vibeflow")
-        out (jack/midi-out-port client :drumcircle)
-        pos (JackPosition.)]
-    (jack/register client
-                   :process
-                   ::my-process
-                   (fn [client cycle-frames]
-                     (let [tstate (.transportQuery client pos)
-                           playing? (= tstate JackTransportState/JackTransportRolling)
-                           new-state (swap! state (fn [state]
-                                                    (assoc (assoc-pos state pos) :playing? playing?)))]
-                       (JackMidi/clearBuffer out)
+(defn handle-new-position [client cycle-frames]
+  (let [out (jack/midi-out-port client :drumcircle)
+        pos (JackPosition.)
+        tstate (.transportQuery client pos)
+        playing? (= tstate JackTransportState/JackTransportRolling)
+        new-state (swap! state (fn [state] (assoc (assoc-pos state pos) :playing? playing?)))]
+    (JackMidi/clearBuffer out)
+    (when playing?
+      (write-cycle-beats client out cycle-frames new-state)))
+  true)
 
-                       (when playing?
-                         (write-cycle-beats client out cycle-frames new-state)))
-                     true))))
+(defn start-sequencer []
+  (jack/register (jack/client "vibeflow") :process ::my-process handle-new-position))
 
 (defn save-pattern [name]
   (spit (str "src/" name ".clj")
