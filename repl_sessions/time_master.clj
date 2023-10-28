@@ -1,9 +1,9 @@
 (ns time-master
   (:require
-   [clojure.string :as str]
    [vibeflow.midi.jack :as jack])
   (:import
-   (org.jaudiolibs.jnajack JackPosition)))
+   (java.util EnumSet)
+   (org.jaudiolibs.jnajack JackPosition JackPositionBits)))
 
 (set! *warn-on-reflection* true)
 
@@ -21,8 +21,8 @@
         bar (/ frame frames-per-beat beats-per-bar)
         bar-start-tick (- ticks-total (mod ticks-total ticks-per-bar))]
     ;; coerce to the types that JackPosition uses
-    {:bar (int bar)
-     :beat (int beat)
+    {:bar (inc (int bar))
+     :beat (inc (int beat))
      :tick (int tick)
      :bar-start-tick (double bar-start-tick)
      :beats-per-bar (float beats-per-bar)
@@ -46,7 +46,13 @@
     (.setBeatsPerBar beats-per-bar)
     (.setBeatType beat-type)
     (.setTicksPerBeat ticks-per-beat)
-    (.setBeatsPerMinute beats-per-minute)))
+    (.setBeatsPerMinute beats-per-minute)
+    (.setValid
+     (EnumSet/of
+      JackPositionBits/JackPositionBBT
+      ;; JackPositionBits/JackBBTFrameOffset
+      ;; JackPositionBits/JackPositionTimecode
+      ))))
 
 (def timing (atom {:bpm 120
                    :beats-per-bar 4
@@ -55,21 +61,24 @@
 
 #_(swap! timing assoc :ticks-per-beat 16)
 
-(def client (jack/make-time-master (jack/client "time-master")))
+(def client (jack/make-time-master (jack/client :vibeflow)))
 
 (jack/register
  client
  :update-position
  ::time-master
  (fn [client state nframes ^JackPosition pos new-pos?]
-   (populate-jack-pos pos (calculate-timings (.getFrameRate pos) (.getFrame pos) @timing))))
-
+   ;;(print ":") (flush)
+   #_(if new-pos?)
+   (populate-jack-pos pos (calculate-timings (.getFrameRate pos) (.getFrame pos) @timing))
+   ;; (prn (bean pos))
+   ))
+(calculate-timings 48000 0 @timing)
 (comment
+  (.transportLocate (:client client) 0)
   (jack/start-transport! client)
   (jack/stop-transport! client)
   (let [pos (JackPosition.)]
     (.transportQuery (:client client) pos)
     (bean pos))
-
-  (.transportLocate (:client client) 0)
   )

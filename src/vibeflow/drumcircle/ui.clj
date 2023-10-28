@@ -74,7 +74,16 @@
      :ring-count ring-count
      :arc-offset arc-offset}))
 
-(defn draw [{:keys [pattern tick] :as x}]
+(defn current-segment [{:keys [beat bar tick ticks-per-beat beats-per-bar] :as state}]
+  (let [ticks-in-bar (* ticks-per-beat beats-per-bar)
+        current-tick-in-bar (+ tick (* ticks-per-beat beat))]
+    (if (zero? ticks-in-bar)
+      0
+      (mod
+       (+ (Math/floor (* 16 (/ current-tick-in-bar ticks-in-bar))) 12)
+       16))))
+
+(defn draw [{:keys [pattern] :as state}]
   (apply q/background background)
   (let [{:keys [rsize ry rx ring-count
                 margin segments
@@ -103,7 +112,7 @@
     (arc-segment {:rx rx
                   :ry ry
                   :ring (inc ring-count)
-                  :segment tick
+                  :segment (current-segment state)
                   :arc-height arc-height
                   :arc-width arc-width
                   :arc-margin arc-margin
@@ -118,7 +127,6 @@
   (if (< TAU x)
     (recur (- x TAU))
     x))
-
 
 (defn on-mouse-clicked []
   (let [{:keys [rsize ry rx ring-count

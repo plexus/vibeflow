@@ -52,7 +52,10 @@
 
 ;; The jack docs say to reuse a single instance... Might want to make this
 ;; thread-local or lock on it.
-(def ^JackMidi$Event global-midi-event (JackMidi$Event.))
+(defonce ^JackMidi$Event global-midi-event (JackMidi$Event.))
+(defonce !instance (delay (Jack/getInstance)))
+
+(defn instance ^Jack [] @!instance)
 
 (defonce clients (atom {}))
 
@@ -117,7 +120,7 @@
   "Construct a new Jack client. Prefer [[client]] which is idempotent."
   [name]
   (let [status (EnumSet/noneOf JackStatus)
-        client (.openClient (Jack/getInstance)
+        client (.openClient (instance)
                             name
                             (EnumSet/of JackOptions/JackNoStartServer)
                             status)
@@ -167,8 +170,11 @@
 
 (defn client
   "Get a client for a given name, creating it if it doesn't exist."
-  [name]
-  (or (get @clients name) (make-client name)))
+  [client-name]
+  (let [name (if (keyword? client-name)
+               (subs (str client-name) 1)
+               client-name)]
+    (or (get @clients name) (make-client name))))
 
 (defn midi-port [^JackClientWrapper client name type]
   (assert (keyword? name))
@@ -231,3 +237,31 @@
 
 (defn stop-transport! [client]
   (.transportStop ^JackClient (:client client)))
+
+(defn ports [client]
+  (.getPorts (instance) (:client client) nil nil nil))
+
+(defn connections [client port]
+  (.getAllConnections (instance) (:client client) port))
+
+(defn connect [client from to]
+  (.connect (instance) (:client client) from to))
+
+(defn disconnect [client from to]
+  (.disconnect (instance) (:client client) from to))
+
+(defn connect!
+  "Sets jack connections to exactly the given connections, given as a list of
+  pairs (port names, String)."
+  [client conns]
+  (let [ports (ports client)
+        existing (set (for [from ports
+                            to (connections client from)]
+                        (vec (sort [from to]))))]
+    (doseq [[from to] existing]
+      (when-not (some #{[from to] [to from]} conns)
+        (disconnect client to from)))
+    (doseq [[from to] conns]
+      (when-not (some #{[from to] [to from]} existing)
+        (when (and (some #{from} ports) (some #{to} ports))
+          (connect client from to))))))

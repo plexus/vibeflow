@@ -9,7 +9,7 @@
     [7/8 :kick] [5/8 :hi-hat-open] [1/2 :hi-hat] [7/16 :kick]
     [7/16 :hi-hat] [1/4 :snare] [1/4 :hi-hat] [1/2 :kick] [3/4 :hi-hat]
     [0 :hi-hat]},
-  :instruments
+  #_#_:instruments
   {:kick [0 40 127],
    :snare [0 53 127],
    :hi-hat [0 71 127],

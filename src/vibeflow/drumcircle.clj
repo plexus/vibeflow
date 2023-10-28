@@ -29,26 +29,31 @@
    [clojure.pprint :as pprint]
    [clojure.string :as str]))
 
-(defonce state (atom {:pattern #{[0 :kick]
-                                 [1/4 :snare]
-                                 [2/4 :kick]
-                                 [5/8 :snare]
-                                 [3/4 :kick]}
-                      :instruments {:kick [0 40 127]
-                                    :snare [0 53 127]
-                                    :hi-hat [0 71 127]
-                                    :hi-hat-open [0 69 127]}
-                      :bar 0
-                      :beat 0
-                      :tick 0
-                      :ticks-per-beat 1920
-                      :frame 0
-                      :frame-rate 44100
-                      :playing? false
-                      :bpm 120
-                      :beats-per-bar 4 ;; Together these
-                      :beat-type 4     ;; form the time signature (4/4)
-                      }))
+(def init-state
+  {:pattern #{[0 :kick]
+              [1/4 :snare]
+              [2/4 :kick]
+              [5/8 :snare]
+              [3/4 :kick]}
+   :instruments {:kick [9 35 127] ;; [channel note velocity]
+                 :snare [9 38 127]
+                 :hi-hat [9 42 127]
+                 :hi-hat-open [9 46 127]}
+   :bar 0
+   :beat 0
+   :tick 0
+   :ticks-per-beat 1920
+   :frame 0
+   :frame-rate 44100
+   :playing? false
+   :bpm 120
+   :beats-per-bar 4 ;; Together these
+   :beat-type 4     ;; form the time signature (4/4)
+   })
+
+(defonce state (atom init-state))
+
+;; (reset! state init-state)
 
 (defn note-in-range [^double n ^double start ^double end]
   (or (<= start n end)
@@ -64,22 +69,22 @@
 ;; bar, beat : start at 1
 ;; tick : starts at 0
 
-(defn sample-at-bbt [{:keys [bpm sig-count sig-type
+(defn sample-at-bbt [{:keys [bpm beats-per-bar beat-type
                              frame-rate ticks-per-beat]}
                      bar beat tick]
-  (if (or (#{0 0.0} ticks-per-beat)
-          (#{0 0.0} bpm))
+  (if (or (zero? ticks-per-beat)
+          (zero? bpm))
     0
-    (let [beats (+ (* (dec bar) sig-count)
+    (let [beats (+ (* (dec bar) beats-per-bar)
                    (dec beat)
                    (/ tick ticks-per-beat))]
       (* 60 (/ beats bpm) frame-rate))))
 
-(defn bbt-at-sample [{:keys [bpm sig-count sig-type
+(defn bbt-at-sample [{:keys [bpm beats-per-bar beat-type
                              frame-rate ticks-per-beat]}
                      sample]
   (let [beats (* (/ sample frame-rate 60) bpm)
-        bars  (quot beats sig-count)
+        bars  (quot beats beats-per-bar)
         ticks (* (mod beats 1) ticks-per-beat)
         beats (quot beats 1)]
     [(inc bars) (inc beats) ticks]))
@@ -109,6 +114,8 @@
     [(inc bar) b t]
     [bar b t]))
 
+(:beat @state)
+
 (defn write-cycle-beats [client port cycle-frames
                          {:keys [bar beat tick ticks-per-beat
                                  frame frame-rate
@@ -116,8 +123,8 @@
                                  playing?
                                  pattern instruments]}]
   (let [timing {:bpm bpm
-                :sig-count beats-per-bar
-                :sig-type beat-type
+                :beats-per-bar beats-per-bar
+                :beat-type beat-type
                 :frame-rate frame-rate
                 :ticks-per-beat ticks-per-beat}
         note-length 1/32
@@ -133,11 +140,10 @@
                          pattern)
         cycle-start frame
         cycle-end (+ frame cycle-frames)]
-
     (doseq [[sample inst] note-ends
             :when (<= cycle-start sample cycle-end)]
       (let [[chan note velocity] (get instruments inst)]
-        (println "OFF" inst (format-bbt (bbt-at-sample timing sample)))
+        #_(println "OFF" inst (format-bbt (bbt-at-sample timing sample)))
         (jack/write-midi-event port
                                (- sample cycle-start)
                                (midi/message chan :note-off note 0))))
@@ -145,7 +151,7 @@
     (doseq [[sample inst] note-starts
             :when (<= cycle-start sample cycle-end)]
       (let [[chan note velocity] (get instruments inst)]
-        (println "ON" inst (format-bbt (bbt-at-sample timing sample)))
+        #_(println "ON" inst (format-bbt (bbt-at-sample timing sample)))
         (jack/write-midi-event port
                                (- sample cycle-start)
                                (midi/message chan :note-on note velocity))))))
@@ -199,19 +205,22 @@
          :beats-per-bar (.getBeatsPerBar pos)
          :beat-type (.getBeatType pos)))
 
-(defn handle-new-position [client cycle-frames]
-  (let [out (jack/midi-out-port client :drumcircle)
-        pos (JackPosition.)
-        tstate (.transportQuery client pos)
-        playing? (= tstate JackTransportState/JackTransportRolling)
-        new-state (swap! state (fn [state] (assoc (assoc-pos state pos) :playing? playing?)))]
-    (JackMidi/clearBuffer out)
-    (when playing?
-      (write-cycle-beats client out cycle-frames new-state)))
-  true)
-
 (defn start-sequencer []
-  (jack/register (jack/client "vibeflow") :process ::my-process handle-new-position))
+  (let [client (jack/client "vibeflow")
+        midi-out (jack/midi-out-port client :drumcircle)
+        jack-pos (JackPosition.)]
+    (jack/register
+     client :process ::my-process
+     (fn [client cycle-frames]
+       (let [transport-state (.transportQuery client jack-pos)
+             playing? (= transport-state JackTransportState/JackTransportRolling)
+             new-state (swap! state (fn [state] (assoc (assoc-pos state jack-pos) :playing? playing?)))]
+         #_(print (if playing? ">" ".")) (flush)
+         #_(prn @state)
+         (JackMidi/clearBuffer midi-out)
+         (when playing?
+           (write-cycle-beats client midi-out cycle-frames new-state)))
+       true))))
 
 (defn save-pattern [name]
   (spit (str "src/" name ".clj")
