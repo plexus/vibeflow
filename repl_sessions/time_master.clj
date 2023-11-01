@@ -59,7 +59,8 @@
                    :beat-type 4
                    :ticks-per-beat 1920}))
 
-#_(swap! timing assoc :ticks-per-beat 16)
+(swap! timing assoc :ticks-per-beat 1920)
+(swap! timing assoc :bpm 60)
 
 (def client (jack/make-time-master (jack/client :vibeflow)))
 
@@ -71,13 +72,15 @@
    ;;(print ":") (flush)
    #_(if new-pos?)
    (populate-jack-pos pos (calculate-timings (.getFrameRate pos) (.getFrame pos) @timing))
-   ;; (prn (bean pos))
+   #_(prn (bean pos))
    ))
+
 (calculate-timings 48000 0 @timing)
 (comment
   (.transportLocate (:client client) 0)
   (jack/start-transport! client)
   (jack/stop-transport! client)
+
   (let [pos (JackPosition.)]
     (.transportQuery (:client client) pos)
     (bean pos))

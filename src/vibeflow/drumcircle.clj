@@ -141,7 +141,8 @@
         cycle-start frame
         cycle-end (+ frame cycle-frames)]
     (doseq [[sample inst] note-ends
-            :when (<= cycle-start sample cycle-end)]
+            :when (and (<= cycle-start sample)
+                       (< sample cycle-end))]
       (let [[chan note velocity] (get instruments inst)]
         #_(println "OFF" inst (format-bbt (bbt-at-sample timing sample)))
         (jack/write-midi-event port
@@ -149,9 +150,10 @@
                                (midi/message chan :note-off note 0))))
 
     (doseq [[sample inst] note-starts
-            :when (<= cycle-start sample cycle-end)]
+            :when (and (<= cycle-start sample)
+                       (< sample cycle-end))]
       (let [[chan note velocity] (get instruments inst)]
-        #_(println "ON" inst (format-bbt (bbt-at-sample timing sample)))
+        #_        (println "ON" inst (format-bbt (bbt-at-sample timing sample)))
         (jack/write-midi-event port
                                (- sample cycle-start)
                                (midi/message chan :note-on note velocity))))))
@@ -206,7 +208,7 @@
          :beat-type (.getBeatType pos)))
 
 (defn start-sequencer []
-  (let [client (jack/client "vibeflow")
+  (let [client (jack/client :vibeflow)
         midi-out (jack/midi-out-port client :drumcircle)
         jack-pos (JackPosition.)]
     (jack/register
@@ -221,6 +223,14 @@
          (when playing?
            (write-cycle-beats client midi-out cycle-frames new-state)))
        true))))
+
+(defn play-pause! []
+  (let [client  (jack/client :vibeflow)]
+    (cond
+      (= :rolling (:state (jack/transport-pos client)))
+      (jack/stop-transport! client)
+      (= :stopped (:state (jack/transport-pos client)))
+      (jack/start-transport! client))))
 
 (defn save-pattern [name]
   (spit (str "src/" name ".clj")

@@ -53,6 +53,8 @@
 ;; The jack docs say to reuse a single instance... Might want to make this
 ;; thread-local or lock on it.
 (defonce ^JackMidi$Event global-midi-event (JackMidi$Event.))
+(defonce ^JackPosition global-jack-pos (JackPosition.))
+
 (defonce !instance (delay (Jack/getInstance)))
 
 (defn instance ^Jack [] @!instance)
@@ -260,8 +262,36 @@
                         (vec (sort [from to]))))]
     (doseq [[from to] existing]
       (when-not (some #{[from to] [to from]} conns)
-        (disconnect client to from)))
+        (try
+          (disconnect client to from)
+          (catch Exception _))))
     (doseq [[from to] conns]
       (when-not (some #{[from to] [to from]} existing)
         (when (and (some #{from} ports) (some #{to} ports))
-          (connect client from to))))))
+          (try
+            (connect client from to)
+            (catch Exception _)))))))
+
+(defn pos->map [^JackPosition pos]
+  {:bar (.getBar pos)
+   :beat (.getBeat pos)
+   :tick (.getTick pos)
+   :ticks-per-beat (.getTicksPerBeat pos)
+   :frame (.getFrame pos)
+   :frame-rate (.getFrameRate pos)
+   :bpm (.getBeatsPerMinute pos)
+   :beats-per-bar (.getBeatsPerBar pos)
+   :beat-type (.getBeatType pos)})
+
+(defn transport-pos [client]
+  (let [state (.transportQuery ^JackClient (:client client) global-jack-pos)]
+    (assoc
+      (pos->map global-jack-pos)
+      :state
+      (cond
+        (= state JackTransportState/JackTransportStopped)     :stopped
+        (= state JackTransportState/JackTransportRolling)     :rolling
+        (= state JackTransportState/JackTransportLooping)     :looping
+        (= state JackTransportState/JackTransportStarting)    :starting
+        (= state JackTransportState/JackTransportNetStarting) :net-starting ;; Waiting for sync ready on the network
+        ))))

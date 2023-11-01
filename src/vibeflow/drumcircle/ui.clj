@@ -1,6 +1,7 @@
 (ns vibeflow.drumcircle.ui
-  (:require [quil.core :as q]
-            [vibeflow.drumcircle :as drumcircle]))
+  (:require
+   [quil.core :as q]
+   [vibeflow.drumcircle :as drumcircle]))
 
 (def colors {:green  [0x3A 0x60 0x29]
              :yellow [0xF6 0xCE 0x1F]
@@ -10,8 +11,7 @@
              :blue   [0x6E 0xAB 0xB7]
              :light1 [0xEF 0xEF 0xE6]
              :light2 [0xDE 0xD8 0xC2]
-             :light3 [0xA1 0xA5 0x86]
-             })
+             :light3 [0xA1 0xA5 0x86]})
 
 (def background [0xE3 0xD2 0x85])
 
@@ -161,7 +161,10 @@
                          :draw (fn []
                                  (draw @drumcircle/state))
                          :size [canvas-size canvas-size]
+                         :features [:resizable]
                          :on-close #(remove-watch drumcircle/state watch-key)
+                         :key-typed (fn [] (when (= :space (q/key-as-keyword))
+                                             (drumcircle/play-pause!)))
                          :mouse-clicked #'on-mouse-clicked)]
     (add-watch drumcircle/state
                watch-key
