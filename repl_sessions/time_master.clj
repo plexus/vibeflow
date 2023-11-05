@@ -7,12 +7,12 @@
 
 (set! *warn-on-reflection* true)
 
-(defn calculate-timings [frame-rate frame {:keys [bpm
+(defn calculate-timings [frame-rate frame {:keys [beats-per-minute
                                                   beats-per-bar
                                                   beat-type
                                                   ticks-per-beat]
                                            :as timing}]
-  (let [frames-per-beat (/ frame-rate (/ bpm 60))
+  (let [frames-per-beat (/ frame-rate (/ beats-per-minute 60))
         frames-per-tick (/ frames-per-beat ticks-per-beat)
         ticks-per-bar (* ticks-per-beat beats-per-bar)
         ticks-total (/ frame frames-per-tick)
@@ -28,7 +28,7 @@
      :beats-per-bar (float beats-per-bar)
      :beat-type (float beat-type)
      :ticks-per-beat (double ticks-per-beat)
-     :beats-per-minute (double bpm)}))
+     :beats-per-minute (double beats-per-minute)}))
 
 (defn populate-jack-pos [^JackPosition pos {:keys [^int bar
                                                    ^int beat
@@ -54,13 +54,13 @@
       ;; JackPositionBits/JackPositionTimecode
       ))))
 
-(def timing (atom {:bpm 120
+(def timing (atom {:beats-per-minute 120
                    :beats-per-bar 4
                    :beat-type 4
                    :ticks-per-beat 1920}))
 
 (swap! timing assoc :ticks-per-beat 1920)
-(swap! timing assoc :bpm 60)
+(swap! timing assoc :beats-per-minute 110)
 
 (def client (jack/make-time-master (jack/client :vibeflow)))
 
@@ -75,7 +75,6 @@
    #_(prn (bean pos))
    ))
 
-(calculate-timings 48000 0 @timing)
 (comment
   (.transportLocate (:client client) 0)
   (jack/start-transport! client)
@@ -84,4 +83,6 @@
   (let [pos (JackPosition.)]
     (.transportQuery (:client client) pos)
     (bean pos))
+
+  (calculate-timings 48000 0 @timing)
   )
