@@ -114,8 +114,6 @@
     [(inc bar) b t]
     [bar b t]))
 
-(:beat @state)
-
 (defn write-cycle-beats [client port cycle-frames
                          {:keys [bar beat tick ticks-per-beat
                                  frame frame-rate

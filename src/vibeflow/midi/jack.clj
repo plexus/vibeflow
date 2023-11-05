@@ -240,11 +240,46 @@
 (defn stop-transport! [client]
   (.transportStop ^JackClient (:client client)))
 
-(defn ports [client]
-  (.getPorts (instance) (:client client) nil nil nil))
+(def port-flags
+  {:can-monitor JackPortFlags/JackPortCanMonitor
+   :in JackPortFlags/JackPortIsInput
+   :out JackPortFlags/JackPortIsOutput
+   :physical JackPortFlags/JackPortIsPhysical
+   :terminal JackPortFlags/JackPortIsTerminal})
 
-(defn connections [client port]
-  (.getAllConnections (instance) (:client client) port))
+(defn ports
+  "Get a vector of Jack ports (strings). Optionally takes a set of keywords to
+  filter by type and port flags, e.g. #{:midi :out}, #{:audio :physical}"
+  ([client]
+   (into [] (.getPorts (instance) (:client client) nil nil nil)))
+  ([client type-and-flags]
+   (into
+    []
+    (.getPorts (instance) (:client client) nil
+               (cond
+                 (every? type-and-flags [:midi :audio])
+                 nil
+                 (:audio type-and-flags)
+                 JackPortType/AUDIO
+                 (:midi type-and-flags)
+                 JackPortType/MIDI
+                 :else nil)
+               (let [flags (EnumSet/noneOf JackPortFlags)]
+                 (doseq [[kw flag] port-flags]
+                   (when (get type-and-flags kw)
+                     (.add flags flag)))
+                 flags)))))
+
+(comment
+  (ports (client :vibeflow) #{:midi :in}))
+
+(defn connections
+  ([client]
+   (for [from (ports client #{:out})
+         to (connections client from)]
+     [from to]))
+  ([client port]
+   (into [] (.getAllConnections (instance) (:client client) port))))
 
 (defn connect [client from to]
   (.connect (instance) (:client client) from to))
