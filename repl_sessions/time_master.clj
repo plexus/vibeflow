@@ -59,9 +59,6 @@
                    :beat-type 4
                    :ticks-per-beat 1920}))
 
-(swap! timing assoc :ticks-per-beat 1920)
-(swap! timing assoc :beats-per-minute 110)
-
 (def client (jack/make-time-master (jack/client :vibeflow)))
 
 (jack/register
@@ -85,4 +82,7 @@
     (bean pos))
 
   (calculate-timings 48000 0 @timing)
+
+  (swap! timing assoc :ticks-per-beat 1920)
+  (swap! timing assoc :beats-per-minute 90)
   )
