@@ -84,5 +84,5 @@
   (calculate-timings 48000 0 @timing)
 
   (swap! timing assoc :ticks-per-beat 1920)
-  (swap! timing assoc :beats-per-minute 90)
+  (swap! timing assoc :beats-per-minute 120)
   )
